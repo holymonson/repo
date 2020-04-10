@@ -1,0 +1,41 @@
+name: Watch repo
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  push:
+
+jobs:
+  watch-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+        with:
+          ref: master
+
+      - name: Fetch upstream
+        run: |
+          git remote -v add upstream https://github.com/archlinuxcn/repo.git
+          git fetch -v --shallow-since=`git show -q --format=%cI` upstream master
+
+      - name: Dispatch build job
+        shell: bash -x {0}
+        run: |
+          files=`git diff --name-only upstream/master -- */PKGBUILD`
+          for file in $files; do
+            pkgbase=`cut -d/ -f2 <<< "$file"`
+            curl -sS -X POST https://api.github.com/repos/holymonson/repo/dispatches \
+              -H 'Authorization: token ${{ secrets.REPO_ACCESS_TOKEN }}' \
+              -d '{ "event_type": "updated", "client_payload": { "pkgbase": "'$pkgbase'" }}'
+          done
+
+      - name: Merge to keep up-to-date with upstream
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "Your Name"
+          git merge -v upstream/master
+
+      - name: Push to repo
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.REPO_ACCESS_TOKEN }}

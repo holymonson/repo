@@ -1,0 +1,54 @@
+name: Build package
+
+on:
+  repository_dispatch:
+    types: [updated]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Upgrade and install base devel packages
+        shell: bash -ex {0}
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm base-devel
+
+      - name: Prepare build user and environment
+        shell: bash -ex {0}
+        run: |
+          useradd -m pkgbuilder
+          EDITOR='tee -a' visudo <<< 'pkgbuilder ALL=(ALL:ALL) NOPASSWD: ALL'
+          pkgbase=${{ github.event.client_payload.pkgbase }}
+          sudo -u pkgbuilder cp -Trv archlinuxcn/$pkgbase /home/pkgbuilder/buildroot
+
+      - name: Build package
+        shell: sudo -u pkgbuilder bash -ex {0}
+        working-directory: /home/pkgbuilder/buildroot
+        run: |
+          sudo -u pkgbuilder makepkg -s --noconfirm --noprogressbar
+
+      - name: Upload packages
+        continue-on-error: true
+        shell: sudo -u pkgbuilder bash -x {0}
+        working-directory: /home/pkgbuilder/buildroot
+        run: |
+          pkgs=`makepkg --packagelist`
+          for pkg in $pkgs; do
+            readarray -t info < <(pacman -Qip ${pkg} | cut -c19-)
+
+            # create package
+            curl -sS -X POST https://api.bintray.com/packages/monson/alcn \
+              -u holymonson:${{ secrets.BINTRAY_API_KEY }} \
+              -H 'Content-Type: application/json' \
+              -d '{ "name": "'${info[0]}'" }'
+
+            # upload content
+            curl -sS -X PUT -L -T $pkg \
+              -u holymonson:${{ secrets.BINTRAY_API_KEY }} \
+              "https://api.bintray.com/content/monson/alcn/${info[0]}/${info[1]}/${info[3]}/$(basename $pkg);publish=1;override=1;explode=0"
+          done

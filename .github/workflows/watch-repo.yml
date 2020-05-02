@@ -1,9 +1,9 @@
 name: Watch repo
 
-on:
-  schedule:
-    - cron: '*/10 * * * *'
-  push:
+# on:
+#   schedule:
+#     - cron: '*/10 * * * *'
+#   push:
 
 jobs:
   watch-repo:
